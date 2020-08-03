@@ -165,10 +165,11 @@ function createMenuItem(text, booru) {
 }
 
 function getCurrentImageId() {
-  const regex = new RegExp(`(?:${window.location.origin})/(?:images/)?(?<domID>\\d+)(?:\\?.*|/|\\.html)?`, 'i');
+  const regex = new RegExp(`(?:${window.location.origin})/(?:images/)?(\\d+)(?:\\?.*|/|\\.html)?`, 'i');
   const result = regex.exec(window.location.href);
   if (result) {
-    return result.groups.domID;
+    const [, domID] = result;
+    return domID;
   } else {
     throw new Error('Unable to determin current image id.');
   }
