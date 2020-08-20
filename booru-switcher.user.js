@@ -121,17 +121,23 @@ function initSwitcherUI() {
   const nav = createDropdown();
 
   const searchDict = getQueryVariables();
-  if (searchDict && searchDict.page) delete searchDict.page;
+  if (searchDict?.page) delete searchDict.page;
 
   const searchStr = (Object.keys(searchDict).length)
     ? '?' + Object.entries(searchDict).map(arr => arr.join('=')).join('&')
     : '';
 
+  // booru-on-rails hack
+  let pathname = window.location.pathname;
+  if (pathname == '/search/index') {
+    pathname = '/search';
+  }
+
   for (const booru of boorus) {
     const {name, host} = booru;
     if (window.location.host.match(host)) continue;
     const anchor = createMenuItem(name, booru);
-    anchor.href = window.location.protocol + '//' + host + window.location.pathname + searchStr;
+    anchor.href = window.location.protocol + '//' + host + pathname + searchStr;
     nav.append(anchor);
   }
 }
