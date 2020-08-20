@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Switcher
 // @description  Switch between Philomena-based boorus
-// @version      1.2.2
+// @version      1.3.1
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -89,23 +89,32 @@ function initSearchUI() {
     try {
       updateMessage('Searching...', host);
 
-      /*
-       *  Use reverse image serch as additional level of fallback if client-side hashing
-       *  failed to yeild result. This takes the least precedence due to its inaccuracies.
-       *
-       *  To minimize latency, initiate client-side hashing and reverse search in parallel.
-       */
-      const imageSearch = (useFallbacks && !isBor(host))
-        ? searchByImage(fullImageURL, host)
-        : null;
-      const hashSearch = searchByHash(host, useFallbacks);
-      const id = await hashSearch || await imageSearch;
+      let id = null;
+      if (isBor(host)) {
+        // Twibooru
+        id = await searchByApi(host) || await searchByHash(host, useFallbacks);
+      } else {
+
+        /*
+         *  Use reverse image serch as additional level of fallback if client-side hashing
+         *  failed to yeild result. This takes the least precedence due to its inaccuracies.
+         *
+         *  To minimize latency, initiate client-side hashing and reverse search in parallel.
+         */
+        const imageSearch = (useFallbacks) ? searchByImage(fullImageURL, host) : null;
+        const hashSearch = searchByHash(host, useFallbacks);
+        id = await hashSearch || await imageSearch;
+      }
 
       if (id) {
-        const link = `https://${host}/images/${id}`;
+        const anchor = document.createElement('a');
+        anchor.href = `https://${host}/images/${id}`;
+        anchor.relList.add('noopener');
+        anchor.referrerPolicy = 'origin';
 
+        document.body.append(anchor);
+        anchor.click();
         updateMessage('Redirecting...', host);
-        window.location.href = link;
       } else {
         updateMessage('Not on ' + name, host);
       }
@@ -164,6 +173,8 @@ function createMenuItem(text, booru) {
   const anchor = document.createElement('a');
   anchor.classList.add('header__link');
   anchor.classList.add(`${SCRIPT_ID}_link`);
+  anchor.relList.add('noopener');
+  anchor.referrerPolicy = 'origin';
   anchor.dataset.name = name;
   anchor.dataset.host = host;
   anchor.innerText = text;
@@ -325,45 +336,28 @@ function searchByImage(imageUrl, host) {
 }
 
 function searchByHash(host, hashFallback) {
-
-  const encodeSearch = (hashes) => {
-
-    /*
-     *  hash:      the hash of the optimized image serverd by the site
-     *  orig_hash: the hash of the original uploaded file
-     */
-    const {hash, orig_hash} = hashes;
-    const tokenOr = '||';
-    const tokens = [
-      'orig_sha512_hash:' + hash,
-      tokenOr,
-      'orig_sha512_hash:' + orig_hash,
-      tokenOr,
-      'sha512_hash:' + hash,
-      tokenOr,
-      'sha512_hash:' + orig_hash,
-    ];
-    log(hashes);
-
-    return tokens.map(token => unsafeWindow.encodeURIComponent(token)).join('+');
-  };
-
-  const imageId = getCurrentImageId();
   if (hashFallback) updateMessage('Searching... [hash]', host);
+  return fetchImageHash(getCurrentImageId(), hashFallback)
+    .then(hashes => {
+      log(hashes);
 
-  return fetchImageHash(imageId, hashFallback)
-    .then(encodeSearch)
-    .then(searchTerm => {
-      const dict = {
-        q: searchTerm,
-        filter_id: getFilterId(host),   // Use the 'Everything' filter to get unfiltered results
-      };
-      const query = Object.entries(dict)
-        .map(arr => arr.join('='))
-        .join('&');
+      /*
+       *  hash:      the hash of the optimized image serverd by the site
+       *  orig_hash: the hash of the original uploaded file
+       */
+      const searchItems = [];
+      const {hash, orig_hash} = hashes;
+      [hash, orig_hash].forEach(hash => {
+        searchItems.push('orig_sha512_hash:' + hash);
+        searchItems.push('sha512_hash:' + hash);
+      });
+      const query = makeQueryString({
+        q: encodeSearch(searchItems.join(' || ')),
+        filter_id: getFilterId(host),
+      });
 
       const searchApiEndPoint = (!isBor(host)) ? '/api/v1/json/search/images' : '/search.json';
-      const url = 'https://' + host + searchApiEndPoint + '?' + query;
+      const url = 'https://' + host + searchApiEndPoint + query;
 
       log('begin search by hash');
       return url;
@@ -376,6 +370,32 @@ function searchByHash(host, hashFallback) {
       log('Hash search results: ' + arr.length);
       return (arr.length > 0) ? arr[0].id : null;
     });
+}
+
+// Twibooru specific
+function searchByApi(host) {
+  const hostToSiteMapping = {
+    'www.derpibooru.org': 'derpibooru',
+    'www.trixiebooru.org': 'derpibooru',
+    'derpibooru.org': 'derpibooru',
+    'trixiebooru.org': 'derpibooru',
+  };
+
+  const sourceId = getCurrentImageId();
+  const site = hostToSiteMapping[window.location.host];
+  if (!site) return null;
+
+  const query = makeQueryString({
+    q: encodeSearch(`location:${site} && id_at_location:${sourceId}`),
+    filter_id: getFilterId(host),
+  });
+  const url = 'https://twibooru.org/search.json' + query;
+  log('Searching Twibooru with API');
+  log(url);
+  return makeCrossSiteRequest(url)
+    .then(handleResponseError)
+    .then(resp => resp.response)
+    .then(json => (json.total > 0) ? json.search[0].id : null);
 }
 
 function makeCrossSiteRequest(url, method = 'GET') {
@@ -397,6 +417,20 @@ function makeCrossSiteRequest(url, method = 'GET') {
       onerror: resp => resolve({ok: false, url: resp.finalUrl, response: resp}),
     });
   });
+}
+
+function makeQueryString(queries) {
+  return '?' + Object
+    .entries(queries)
+    .map(arr => arr.join('='))
+    .join('&');
+}
+
+function encodeSearch(searchTerm) {
+  return searchTerm
+    .split(' ')
+    .map(unsafeWindow.encodeURIComponent)
+    .join('+');
 }
 
 function makeAbsolute(path, domain) {
