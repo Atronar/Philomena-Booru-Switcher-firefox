@@ -1,7 +1,7 @@
 # Philomena-Booru-Switcher
 
 Requires [Violentmonkey](https://violentmonkey.github.io/) or compatible userscript manager.  
-[Click here to install](https://github.com/marktaiwan/Philomena-Booru-Switcher/raw/master/booru-switcher.user.js)
+[Click here to install](https://github.com/Atronar/Philomena-Booru-Switcher-firefox/raw/master/booru-switcher.user.js)
 
 ## Screenshot
 
