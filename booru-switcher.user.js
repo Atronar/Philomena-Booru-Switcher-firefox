@@ -29,6 +29,7 @@
 // @grant        unsafeWindow
 // @inject-into  content
 // @noframes
+// @require      https://github.com/marktaiwan/Derpibooru-Unified-Userscript-Ui/raw/master/derpi-four-u.js?v1.2.3
 // ==/UserScript==
 (function () {
 'use strict';
@@ -44,6 +45,21 @@ const boorus = [
   {name: 'Furbooru', host: 'furbooru.org', filterId: 2},
 ];
 const DEBUG = false;
+
+const config = ConfigManager(
+  'Philomena Booru Switcher',
+  SCRIPT_ID,
+  'Switch between Philomena-based image boorus.'
+);
+config.registerSetting({
+  title: 'Force fallback',
+  key: 'force_fallback',
+  description: 'Force using search by image (instead ctrl+click).',
+  type: 'checkbox',
+  defaultValue: false
+});
+
+const FORCE_FALLBACK = config.getEntry('force_fallback');
 
 function $(selector, parent = document) {
   return parent.querySelector(selector);
@@ -87,7 +103,7 @@ function initSearchUI() {
     e.stopPropagation();
 
     const anchor = e.target;
-    const useFallbacks = e.ctrlKey;
+    const useFallbacks = e.ctrlKey || FORCE_FALLBACK;
     const name = anchor.dataset.name;
     const host = anchor.dataset.host;
     const imageTarget = $('#image_target');
@@ -111,7 +127,7 @@ function initSearchUI() {
          */
         const imageSearch = (useFallbacks) ? searchByImage(fullImageURL, host) : null;
         const hashSearch = searchByHash(host, useFallbacks);
-        id = await hashSearch || await imageSearch;
+        id = await imageSearch || await hashSearch;
       }
 
       if (id) {
