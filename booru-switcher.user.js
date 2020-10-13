@@ -12,12 +12,18 @@
 // @match        *://*.ponybooru.org/*
 // @match        *://*.ponerpics.org/*
 // @match        *://*.ponerpics.com/*
+// @match        *://booru.bronyhub.com/*
+// @match        *://*.manebooru.art/*
+// @match        *://*.furbooru.org/*
 // @match        *://*.twibooru.org/*
 // @connect      derpibooru.org
 // @connect      trixiebooru.org
 // @connect      ponybooru.org
 // @connect      ponerpics.org
 // @connect      ponerpics.com
+// @connect      booru.bronyhub.com
+// @connect      manebooru.art
+// @connect      furbooru.org
 // @connect      twibooru.org
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
@@ -33,6 +39,9 @@ const boorus = [
   {name: 'Ponerpics', host: 'ponerpics.org', filterId: 2},
   {name: 'Twibooru', host: 'twibooru.org', filterId: 2, bor: true},  // runs on Booru-on-Rails
   {name: 'Derpibooru', host: 'derpibooru.org', filterId: 56027},
+  {name: 'Bronyhub', host: 'booru.bronyhub.com', filterId: 2},
+  {name: 'Manebooru', host: 'manebooru.art', filterId: 2},
+  {name: 'Furbooru', host: 'furbooru.org', filterId: 2},
 ];
 const DEBUG = false;
 
