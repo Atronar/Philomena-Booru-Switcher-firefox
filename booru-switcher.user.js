@@ -35,8 +35,6 @@
   'use strict';
 
   const SCRIPT_ID = 'booru_switcher';
-  const DEBUG = (localStorage[`${SCRIPT_ID}_debug`] =
-    (Boolean(localStorage[`${SCRIPT_ID}_debug`]) !== null && Boolean(localStorage[`${SCRIPT_ID}_debug`]) !== undefined) ? Boolean(localStorage[`${SCRIPT_ID}_debug`]) : false);
   const boorus = [
     {name: 'Ponybooru', host: 'ponybooru.org', filterId: 1554},
     {name: 'Ponerpics', host: 'ponerpics.org', filterId: 2},
@@ -46,6 +44,8 @@
     {name: 'Manebooru', host: 'manebooru.art', filterId: 2},
     {name: 'Furbooru', host: 'furbooru.org', filterId: 2},
   ];
+  window.booru_switcher = {};
+  window.booru_switcher.DEBUG = false;
 
   const config = ConfigManager(
     'Philomena Booru Switcher',
@@ -124,7 +124,7 @@
     anchor.innerText = msg;
   }
   function log(obj) {
-    if (DEBUG) console.log(obj);
+    if (window.booru_switcher.DEBUG) console.log(obj);
   }
 
   function handleResponseError(response) {
