@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Switcher
 // @description  Switch between Philomena-based boorus
-// @version      1.3.3
+// @version      1.3.9
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -87,13 +87,13 @@ function getQueryVariables() {
 }
 
 function initSearchUI() {
-  const nav = createDropdown();
+  const nav = createDropdown('Search', 'Search for this image on another site');
   nav.style.width = '200px';
 
   for (const booru of boorus) {
     const {name, host} = booru;
     if (window.location.host.match(host)) continue;
-    const anchor = createMenuItem(`Search on ${name}`, booru);
+    const anchor = createMenuItem(name, booru);
     anchor.href = '#';
     nav.append(anchor);
   }
@@ -132,7 +132,7 @@ function initSearchUI() {
 
       if (id) {
         const anchor = document.createElement('a');
-        anchor.href = `https://${host}/images/${id}`;
+        anchor.href = `https://${host}/${(isBor(host)) ? 'posts' : 'images'}/${id}`;
         anchor.relList.add('noopener');
         anchor.referrerPolicy = 'origin';
 
@@ -149,9 +149,28 @@ function initSearchUI() {
   });
 }
 
+function pathTranslation(toBor, pathname) {
+  const pathMapping = [{
+    bor: '/search/index',
+    philomena: '/search',
+  },{
+    bor: '/posts',
+    philomena: '/images',
+  },{
+    bor: '/posts/new',
+    philomena: '/images/new',
+  }];
+
+  for (const {bor, philomena} of pathMapping) {
+    if (!toBor && pathname == bor) return philomena;
+    if (toBor && pathname == philomena) return bor;
+  }
+  return pathname;
+}
+
 function initSwitcherUI() {
   if (!$('header.header, .header__force-right')) return;
-  const nav = createDropdown();
+  const nav = createDropdown('Switch', 'Switch to another booru');
 
   const searchDict = getQueryVariables();
   if (searchDict && searchDict.page) delete searchDict.page;
@@ -160,30 +179,29 @@ function initSwitcherUI() {
     ? '?' + Object.entries(searchDict).map(arr => arr.join('=')).join('&')
     : '';
 
-  // booru-on-rails hack
   let pathname = window.location.pathname;
-  if (pathname == '/search/index') {
-    pathname = '/search';
-  }
+  if (isBor(window.location.host)) pathname = pathTranslation(false, pathname);
 
   for (const booru of boorus) {
     const {name, host} = booru;
+    const path = (!isBor(host)) ? pathname : pathTranslation(true, pathname);
     if (window.location.host.match(host)) continue;
+
     const anchor = createMenuItem(name, booru);
-    anchor.href = window.location.protocol + '//' + host + pathname + searchStr;
+    anchor.href = window.location.protocol + '//' + host + path + searchStr;
     nav.append(anchor);
   }
 }
 
-function createDropdown() {
+function createDropdown(text, title = '') {
   const header = $('header.header');
   const headerRight = $('.header__force-right', header);
   const menuButton = document.createElement('div');
   menuButton.classList.add('dropdown', 'header__dropdown', `${SCRIPT_ID}__menu`);
   menuButton.innerHTML = `
-<a class="header__link" href="#" data-click-preventdefault="true" title="Switch booru">
+<a class="header__link" href="#" data-click-preventdefault="true" title="${title}">
   <i class="${SCRIPT_ID}__icon fa fa-list-ul"></i>
-  <span class="hide-limited-desktop hide-mobile">Switch</span>
+  <span class="hide-limited-desktop hide-mobile">${text}</span>
   <span data-click-preventdefault="true"><i class="fa fa-caret-down"></i></span>
 </a>
 <nav class="dropdown__content"></nav>`;
@@ -206,7 +224,7 @@ function createMenuItem(text, booru) {
 }
 
 function getCurrentImageId() {
-  const regex = new RegExp(`(?:${window.location.origin})/(?:images/)?(\\d+)(?:\\?.*|/|\\.html)?`, 'i');
+  const regex = new RegExp(`(?:${window.location.origin})/(?:images/|posts/)?(\\d+)(?:\\?.*|/|\\.html)?`, 'i');
   const result = regex.exec(window.location.href);
   if (result) {
     const [, domID] = result;
@@ -229,7 +247,7 @@ function fetchImageHash(id, fallback) {
   if (!fallback) {
     const url = (!isBor(window.location.host))
       ? window.location.origin + '/api/v1/json/images/' + id
-      : window.location.origin + '/images/' + id + '.json';
+      : window.location.origin + '/posts/' + id + '.json';
 
     log('get hash by API');
     return makeRequest(url)
@@ -289,12 +307,16 @@ function searchByImage(imageUrl, host) {
       const images = json.images
         .filter(img => (img.duplicate_of === null && img.deletion_reason === null));
 
+      const dupes = json.images.filter(img => img.duplicate_of !== null);
+
       updateMessage('Searching... [image]', host);
       log('searchByImage');
       log('request url:' + url);
       log('Image search results: ' + images.length);
 
-      if (images.length <= 1) return (images.length === 1) ? images[0].id : null;
+      if (images.length <= 1) return (images.length === 1)
+        ? images[0].id
+        : (dupes.length > 0) ? dupes[0].id : null;
 
       /*
        *  There are more than one results.
@@ -482,7 +504,13 @@ function log(obj) {
 
 if ($('#image_target') || $('#thumbnails-not-yet-generated')) {
   initSearchUI();
-} else if (!window.location.pathname.match(/^\/forums\/\w+\/topics/)) {
+} else {
+  // forum pages
+  if (window.location.pathname.match(/^\/forums\/\w+\/topics/)) return;
+
+  // Twibooru pastes
+  if ($('ol.paste-content')) return;
+
   initSwitcherUI();
 }
 
