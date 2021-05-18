@@ -3,15 +3,11 @@ import {encodeSearch, getCurrentImageId, isBor, getFilterId, updateMessage, log}
 import {makeRequest} from './request';
 import {ImageResponse, Philomena, Twibooru} from '../types/BooruApi';
 
-interface ImageObjectWeighted extends Philomena.Image.ImageObject {
-  simScore: number;
-}
-
 function fetchImageHash(id: string, fallback: boolean): Promise<{hash: string, orig_hash: string}> {
   if (!fallback) {
     const url = (!isBor(window.location.host))
       ? window.location.origin + '/api/v1/json/images/' + id
-      : window.location.origin + '/posts/' + id + '.json';
+      : window.location.origin + '/api/v3/posts/' + id;
 
     log('get hash by API');
     return makeRequest(url)
@@ -20,9 +16,9 @@ function fetchImageHash(id: string, fallback: boolean): Promise<{hash: string, o
         const {
           sha512_hash: hash,
           orig_sha512_hash: orig_hash
-        } = (typeof json.image == 'object')
-          ? json.image as Philomena.Image.ImageObject
-          : json as Twibooru.Image.ImageObject;  // booru-on-rails compatibility
+        } = ('image' in json)
+          ? json.image
+          : json.post;  // booru-on-rails compatibility
 
         return {hash, orig_hash};
       });
@@ -81,7 +77,7 @@ function searchByHash(host: BooruRecord['host'], hashFallback: boolean): Promise
         filter_id: getFilterId(host),
       });
 
-      const searchApiEndPoint = (!isBor(host)) ? '/api/v1/json/search/images' : '/search.json';
+      const searchApiEndPoint = (!isBor(host)) ? '/api/v1/json/search/images' : '/api/v3/search/posts';
       const url = 'https://' + host + searchApiEndPoint + query;
 
       log('begin search by hash');
@@ -89,8 +85,8 @@ function searchByHash(host: BooruRecord['host'], hashFallback: boolean): Promise
     })
     .then(makeRequest)
     .then(resp => resp.response)
-    .then(json => {
-      const arr: Array<Philomena.Image.ImageObject | Twibooru.Image.ImageObject> = json.images || json.search;  // booru-on-rails compatibility
+    .then((json: Philomena.Api.Search | Twibooru.Api.Search) => {
+      const arr = 'images' in json ? json.images : json.posts;
 
       log('Hash search results: ' + arr.length);
       return (arr.length > 0) ? arr[0].id : null;
@@ -103,11 +99,7 @@ function searchByImage(imageUrl: string, host: BooruRecord['host']): Promise<num
   return makeRequest(url, 'json', 'POST')
     .then(resp => resp.response as Philomena.Api.Search)
     .then(json => {
-      const images = (json
-        .images
-        .filter(img => img.duplicate_of === null && img.deletion_reason === null)
-      ) as ImageObjectWeighted[];
-
+      const images = json.images.filter(img => img.duplicate_of === null && img.deletion_reason === null);
       const dupes = json.images.filter(img => img.duplicate_of !== null);
 
       updateMessage('Searching... [image]', host);
@@ -153,35 +145,34 @@ function searchByImage(imageUrl: string, host: BooruRecord['host']): Promise<num
       } as const;
       const weightSum = Object.values(weights as {[k: string]: number}).reduce((sum, val) => sum + val);
 
-      images.forEach(image => {
-        const attributes = {
-          mime_type: (image.mime_type == sourceImage.mime_type) ? 1 : 0,
-          aspect_ratio: 1 - Math.tanh(Math.abs(sourceImage.aspect_ratio - image.aspect_ratio)),
-          resolution: 1 - Math.tanh(
-            Math.abs(
-              (sourceImage.width * sourceImage.height) - (image.width * image.height)
-            ) * 1e-3
-          ),
-          tags: jaccardIndex(sourceImage.tags, image.tags),
-        };
-        const score = Object
-          .entries(weights)
-          .reduce((sum, arr) => {
-            const [attrName, weight] = arr;
-            const attrScore = attributes[attrName] * (weight / weightSum);
-            return sum + attrScore;
-          }, 0);
+      const bestMatch = images
+        .map(image => {
+          const attributes = {
+            mime_type: (image.mime_type == sourceImage.mime_type) ? 1 : 0,
+            aspect_ratio: 1 - Math.tanh(Math.abs(sourceImage.aspect_ratio - image.aspect_ratio)),
+            resolution: 1 - Math.tanh(
+              Math.abs(
+                (sourceImage.width * sourceImage.height) - (image.width * image.height)
+              ) * 1e-3
+            ),
+            tags: jaccardIndex(sourceImage.tags, image.tags),
+          };
+          const score = Object
+            .entries(weights)
+            .reduce((sum, arr) => {
+              const [attrName, weight] = arr;
+              const attrScore = attributes[attrName] * (weight / weightSum);
+              return sum + attrScore;
+            }, 0);
 
-        log({id: image.id, simScore: score, image, attributes});
-        image.simScore = score;
-      });
-
-      const bestMatch = images.reduce(
-        (bestMatch, current) => (bestMatch.simScore > current.simScore) ? bestMatch : current
-      );
+          log({id: image.id, simScore: score, image, attributes});
+          return {id: image.id, simScore: score};
+        })
+        .reduce(
+          (bestMatch, current) => (bestMatch.simScore > current.simScore) ? bestMatch : current
+        );
       log({bestMatch});
       return bestMatch.id;
-
     });
 }
 
@@ -202,12 +193,12 @@ function searchByApi(host: BooruRecord['host']): Promise<number> {
     q: encodeSearch(`location:${site} && id_at_location:${sourceId}`),
     filter_id: getFilterId(host),
   });
-  const url = 'https://twibooru.org/search.json' + query;
+  const url = 'https://twibooru.org/api/v3/search/posts' + query;
   log('Searching Twibooru with API');
   log(url);
   return makeRequest(url)
     .then(resp => resp.response as Twibooru.Api.Search)
-    .then(json => (json.total > 0) ? json.search[0].id : null);
+    .then(json => (json.total > 0) ? json.posts[0].id : null);
 }
 
 export {searchByHash, searchByImage, searchByApi};

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Booru Switcher
 // @description Switch between Philomena-based boorus
-// @version     1.4.0
+// @version     1.4.3
 // @author      Marker
 // @license     MIT
 // @namespace   https://github.com/marktaiwan/
@@ -160,13 +160,13 @@
     if (!fallback) {
       const url = !isBor(window.location.host)
         ? window.location.origin + '/api/v1/json/images/' + id
-        : window.location.origin + '/posts/' + id + '.json';
+        : window.location.origin + '/api/v3/posts/' + id;
       log('get hash by API');
       return makeRequest(url)
         .then(resp => resp.response)
         .then(json => {
           const {sha512_hash: hash, orig_sha512_hash: orig_hash} =
-            typeof json.image == 'object' ? json.image : json; // booru-on-rails compatibility
+            'image' in json ? json.image : json.post; // booru-on-rails compatibility
           return {hash, orig_hash};
         });
     } else {
@@ -216,7 +216,9 @@
           q: encodeSearch(searchItems.join(' || ')),
           filter_id: getFilterId(host),
         });
-        const searchApiEndPoint = !isBor(host) ? '/api/v1/json/search/images' : '/search.json';
+        const searchApiEndPoint = !isBor(host)
+          ? '/api/v1/json/search/images'
+          : '/api/v3/search/posts';
         const url = 'https://' + host + searchApiEndPoint + query;
         log('begin search by hash');
         return url;
@@ -224,7 +226,7 @@
       .then(makeRequest)
       .then(resp => resp.response)
       .then(json => {
-        const arr = json.images || json.search; // booru-on-rails compatibility
+        const arr = 'images' in json ? json.images : json.posts;
         log('Hash search results: ' + arr.length);
         return arr.length > 0 ? arr[0].id : null;
       });
@@ -275,28 +277,30 @@
           tags: 3,
         };
         const weightSum = Object.values(weights).reduce((sum, val) => sum + val);
-        images.forEach(image => {
-          const attributes = {
-            mime_type: image.mime_type == sourceImage.mime_type ? 1 : 0,
-            aspect_ratio: 1 - Math.tanh(Math.abs(sourceImage.aspect_ratio - image.aspect_ratio)),
-            resolution:
-              1 -
-              Math.tanh(
-                Math.abs(sourceImage.width * sourceImage.height - image.width * image.height) * 1e-3
-              ),
-            tags: jaccardIndex(sourceImage.tags, image.tags),
-          };
-          const score = Object.entries(weights).reduce((sum, arr) => {
-            const [attrName, weight] = arr;
-            const attrScore = attributes[attrName] * (weight / weightSum);
-            return sum + attrScore;
-          }, 0);
-          log({id: image.id, simScore: score, image, attributes});
-          image.simScore = score;
-        });
-        const bestMatch = images.reduce((bestMatch, current) =>
-          bestMatch.simScore > current.simScore ? bestMatch : current
-        );
+        const bestMatch = images
+          .map(image => {
+            const attributes = {
+              mime_type: image.mime_type == sourceImage.mime_type ? 1 : 0,
+              aspect_ratio: 1 - Math.tanh(Math.abs(sourceImage.aspect_ratio - image.aspect_ratio)),
+              resolution:
+                1 -
+                Math.tanh(
+                  Math.abs(sourceImage.width * sourceImage.height - image.width * image.height) *
+                    1e-3
+                ),
+              tags: jaccardIndex(sourceImage.tags, image.tags),
+            };
+            const score = Object.entries(weights).reduce((sum, arr) => {
+              const [attrName, weight] = arr;
+              const attrScore = attributes[attrName] * (weight / weightSum);
+              return sum + attrScore;
+            }, 0);
+            log({id: image.id, simScore: score, image, attributes});
+            return {id: image.id, simScore: score};
+          })
+          .reduce((bestMatch, current) =>
+            bestMatch.simScore > current.simScore ? bestMatch : current
+          );
         log({bestMatch});
         return bestMatch.id;
       });
@@ -316,12 +320,12 @@
       q: encodeSearch(`location:${site} && id_at_location:${sourceId}`),
       filter_id: getFilterId(host),
     });
-    const url = 'https://twibooru.org/search.json' + query;
+    const url = 'https://twibooru.org/api/v3/search/posts' + query;
     log('Searching Twibooru with API');
     log(url);
     return makeRequest(url)
       .then(resp => resp.response)
-      .then(json => (json.total > 0 ? json.search[0].id : null));
+      .then(json => (json.total > 0 ? json.posts[0].id : null));
   }
 
   function createDropdown(text, title = '') {
